@@ -26,7 +26,7 @@
 
 
 #define RX_TIMEOUT_VALUE                            1000
-#define BUFFER_SIZE                                 30 // Define the payload size here
+#define BUFFER_SIZE                                 100 // Define the payload size here
 
 char txpacket[BUFFER_SIZE];
 char rxpacket[BUFFER_SIZE];
@@ -127,7 +127,7 @@ void logo(){
  display.display();
 }
 
-void LoRaData(float temp, float humidity, int uvValue) {
+void LoRaDataDisplay(float temp, float humidity, int uvValue) {
   display.clear();
   display.setTextAlignment(TEXT_ALIGN_LEFT);
   display.setFont(ArialMT_Plain_10);
@@ -175,10 +175,14 @@ void loop()
 {
   if(lora_idle == true)
   {
+    // Tempo de espera
+    delay(4500);
+
+    // Lendo a temperatura
     float temp = dht.readTemperature();
-    float humidity = dht.readHumidity();
     
-    delay(1500);
+    // Lendo a umidade
+    float humidity = dht.readHumidity();
 
     // Leitura do sensor UV
     int uvValue = analogRead(2);
@@ -186,6 +190,7 @@ void loop()
     Serial.print("UV Sensor Value: ");
     Serial.println(uvValue);
 
+    // Se a temperatura == Nan será acionado o led
     if(isnan(temp)){
       digitalWrite(3, HIGH);
     } else {
@@ -193,8 +198,9 @@ void loop()
     }
     
     txNumber += 0.01;
-    LoRaData(temp, humidity, uvValue);
-    sprintf(txpacket,"%0.2f",temp);  //start a package
+    
+    LoRaDataDisplay(temp, humidity, uvValue);
+    snprintf(txpacket, sizeof(txpacket), "%0.2f,%0.2f,%d", temp, humidity, uvValue);
 
     Serial.printf("\r\nsending packet \"%s\" , length %d\r\n",txpacket, strlen(txpacket));
 

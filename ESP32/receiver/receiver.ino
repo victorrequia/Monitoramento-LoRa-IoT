@@ -3,10 +3,10 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 
-const char *SSID = "ssid_da_sua_rede";
-const char *PWD = "senha_da_sua_rede";
+const char *SSID = "TP-Link_49CF";
+const char *PWD = "Apartamento208";
 
-char *mqttServer = "ip_do_seu_broker";
+char *mqttServer = "192.168.0.129";
 int mqttPort = 1883;
 
 WiFiClient wifiClient;
@@ -137,7 +137,7 @@ void connectToWiFi() {
   Serial.println(SSID);
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
-    delay(500);
+    delay(1000);
   }
   Serial.println(" Connected.");
   Serial.print("IP address: ");
@@ -160,7 +160,7 @@ void reconnect() {
         Serial.println("Connected.");
       }
   }
-  delay(2000);
+  delay(3000);
 }
 
 // Dipay Data
@@ -169,22 +169,26 @@ void LoRaData() {
   display.setTextAlignment(TEXT_ALIGN_LEFT);
   display.setFont(ArialMT_Plain_10);
 
-  // Exibe o tamanho da mensagem recebida
-  display.drawString(0 , 15 , "Recebido " + String(rxSize) + " bytes");
-
-  // Exibe o valor da temperatura
-  String tempStr = String(rxpacket);
-  display.drawStringMaxWidth(0 , 26 , 128,"Temperatura: " + tempStr + "°");
-
+  // Exibe o IP do Broker
   display.drawString(0, 0, "Broker IP: " + String(mqttServer));
 
-  // Convert String to char array
-  char tempChar[tempStr.length() + 1];
-  tempStr.toCharArray(tempChar, tempStr.length() + 1);
+  // Exibe o tamanho da mensagem recebida
+  display.drawString(0 , 11 , "Recebido " + String(rxSize) + " bytes");
 
-  // Publica a temperatura no Broker
-  mqttClient.publish("/temperatura", tempChar);
-  
+  float temp;
+  float humidity;
+  int uv;
+  sscanf(rxpacket, "%f,%f,%d", &temp, &humidity, &uv);
+
+  // Exibe o valor da temperatura
+  display.drawString(0, 26, "Temperatura: " + String(temp, 2) + " °C");
+
+  // Exibe o valor da umidade
+  display.drawString(0, 37, "Umidade: " + String(humidity, 2) + "%");
+
+  // Exibe o valor da radiação UV
+  display.drawString(0, 48, "UV: " + String(uv));
+
   display.display();
 }
 
@@ -233,6 +237,24 @@ void OnRxDone( uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr )
     rxSize=size;
     memcpy(rxpacket, payload, size );
     rxpacket[size]='\0';
+
+    float temp;
+    float humidity;
+    int uvValue;
+    sscanf(rxpacket, "%f,%f,%d", &temp, &humidity, &uvValue);
+
+    char tempChar[30];
+    snprintf(tempChar, sizeof(tempChar), "%0.2f", temp);
+    mqttClient.publish("/temperatura", tempChar);    
+
+    char humidityChar[30];
+    snprintf(humidityChar, sizeof(humidityChar), "%0.2f%", humidity);
+    mqttClient.publish("/umidade", humidityChar);
+
+    char uvChar[30];
+    snprintf(uvChar, sizeof(uvChar), "%d", uvValue);
+    mqttClient.publish("/uv", uvChar);
+    
     Radio.Sleep( );
     Serial.printf("\r\nreceived packet \"%s\" with rssi %d , length %d\r\n",rxpacket,rssi,rxSize);
     lora_idle = true;
