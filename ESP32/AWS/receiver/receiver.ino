@@ -1,44 +1,40 @@
+#include "secrets.h"
 #include "LoRaWan_APP.h"
 #include "Arduino.h"
+#include <ArduinoJson.h>
+#include <WiFiClientSecure.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
 
-const char *SSID = "TP-Link_49CF";
-const char *PWD = "Apartamento208";
-
-char *mqttServer = "192.168.0.129";
-int mqttPort = 1883;
-
-WiFiClient wifiClient;
-PubSubClient mqttClient(wifiClient);
-
-
-#define RF_FREQUENCY                                915000000 // Hz
-
-#define TX_OUTPUT_POWER                             14        // dBm
-
-#define LORA_BANDWIDTH                              0         // [0: 125 kHz,
-                                                              //  1: 250 kHz,
-                                                              //  2: 500 kHz,
-                                                              //  3: Reserved]
-#define LORA_SPREADING_FACTOR                       7         // [SF7..SF12]
-#define LORA_CODINGRATE                             1         // [1: 4/5,
-                                                              //  2: 4/6,
-                                                              //  3: 4/7,
-                                                              //  4: 4/8]
-#define LORA_PREAMBLE_LENGTH                        8         // Same for Tx and Rx
-#define LORA_SYMBOL_TIMEOUT                         0         // Symbols
+#define RF_FREQUENCY                                915000000
+#define TX_OUTPUT_POWER                             14
+#define LORA_BANDWIDTH                              0
+#define LORA_SPREADING_FACTOR                       7
+#define LORA_CODINGRATE                             1
+#define LORA_PREAMBLE_LENGTH                        8
+#define LORA_SYMBOL_TIMEOUT                         0
 #define LORA_FIX_LENGTH_PAYLOAD_ON                  false
 #define LORA_IQ_INVERSION_ON                        false
-
-
 #define RX_TIMEOUT_VALUE                            1000
-#define BUFFER_SIZE                                 30 // Define the payload size here
+#define BUFFER_SIZE                                 30
 
 // Display
 #include "string.h"
 #include "stdio.h"
 #include "HT_SSD1306Wire.h"
+
+
+const char *SSID = "TP-Link_49CF";
+const char *PWD = "Apartamento208";
+
+
+#define AWS_IOT_PUBLISH_TOPIC "sdk/test/java"
+char *mqttServer = "a3rbx8m2z4xd0g-ats.iot.sa-east-1.amazonaws.com";
+int mqttPort = 8883;
+
+WiFiClientSecure net = WiFiClientSecure();
+PubSubClient mqttClient(net);
+
 
 char txpacket[BUFFER_SIZE];
 char rxpacket[BUFFER_SIZE];
@@ -57,7 +53,7 @@ extern SSD1306Wire display;
 #define logo_height 53
 
 const unsigned char logo_bits[] = {
-   0x00, 0x00, 0x38, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+  0x00, 0x00, 0x38, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
   0x00, 0x00, 0x00, 0x00, 0x70, 0x00, 0xF8, 0x00, 0x00, 0x00, 0x00, 0x00, 
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x01, 0xF0, 0x03, 
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
@@ -146,22 +142,32 @@ void connectToWiFi() {
 }
 
 void setupMQTT() {
+  net.setCACert(AWS_CERT_CA);
+  net.setCertificate(AWS_CERT_CRT);
+  net.setPrivateKey(AWS_CERT_PRIVATE);
+
+  mqttClient.setServer(mqttServer, mqttPort);
+  mqttClient.setClient(net);
   mqttClient.setServer(mqttServer, mqttPort);
 }
 
 void reconnect() {
-  Serial.println("Connecting to MQTT Broker...");
-  while (!mqttClient.connected()) {
-      Serial.println("Reconnecting to MQTT Broker..");
-      String clientId = "CLIENT ESP32 - ";
-      clientId += String(random(0xffff), HEX);
-      
-      if (mqttClient.connect(clientId.c_str())) {
-        Serial.println("Connected.");
-      }
-  }
-  delay(3000);
+    while (!mqttClient.connected()) {
+        Serial.print("Attempting MQTT connection...");
+        // Tente conectar
+        if (mqttClient.connect("ESP32_DHT11")) {
+            Serial.println("connected");
+            // Se inscreva ou publique aqui
+        } else {
+            Serial.print("failed, rc=");
+            Serial.print(mqttClient.state());
+            Serial.println(" try again in 5 seconds");
+            // Espere 5 segundos antes de tentar novamente
+            delay(5000);
+        }
+    }
 }
+
 
 // Dipay Data
 void LoRaData() {
@@ -231,31 +237,34 @@ void loop(){
   Radio.IrqProcess( );
 }
 
-void OnRxDone( uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr )
-{
-    rssi=rssi;
-    rxSize=size;
-    memcpy(rxpacket, payload, size );
-    rxpacket[size]='\0';
+void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr) {
+    rssi = rssi;
+    rxSize = size;
+    memcpy(rxpacket, payload, size);
+    rxpacket[size] = '\0';
 
     float temp;
     float humidity;
     int uvValue;
     sscanf(rxpacket, "%f,%f,%d", &temp, &humidity, &uvValue);
 
-    char tempChar[30];
-    snprintf(tempChar, sizeof(tempChar), "%0.2f", temp);
-    mqttClient.publish("/temperatura", tempChar);    
+    char tempStr[8];
+    sprintf(tempStr, "%.2f", temp); // Formata a temperatura com duas casas decimais
 
-    char humidityChar[30];
-    snprintf(humidityChar, sizeof(humidityChar), "%0.2f%", humidity);
-    mqttClient.publish("/umidade", humidityChar);
+    // Cria um objeto JSON
+    StaticJsonDocument<200> doc;
+    doc["temperature"] = tempStr; // Usa a string formatada
+    doc["humidity"] = humidity;
+    doc["uv"] = uvValue;
 
-    char uvChar[30];
-    snprintf(uvChar, sizeof(uvChar), "%d", uvValue);
-    mqttClient.publish("/uv", uvChar);
-    
-    Radio.Sleep( );
-    Serial.printf("\r\nreceived packet \"%s\" with rssi %d , length %d\r\n",rxpacket,rssi,rxSize);
+    // Serializa o JSON para uma string
+    char jsonOutput[128];
+    serializeJson(doc, jsonOutput);
+
+    // Publica o JSON no tópico MQTT
+    mqttClient.publish(AWS_IOT_PUBLISH_TOPIC, jsonOutput);
+
+    Radio.Sleep();
+    Serial.printf("\r\nreceived packet \"%s\" with rssi %d, length %d\r\n", rxpacket, rssi, rxSize);
     lora_idle = true;
 }
